@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vitalini — Simple Demo</title>
+  <style>
+    :root{
+      --bg:#f7f8fa; --card:#ffffff; --text:#111827; --muted:#667085; --accent:#2563eb; --border:#e5e7eb; --danger:#e11d48;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,Segoe UI,Roboto,Inter,Arial,sans-serif}
+    .wrap{max-width:720px;margin:0 auto;padding:28px}
+    h1{margin:0 0 10px;font-weight:700;font-size:clamp(22px,3.6vw,30px)}
+    .models{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 14px}
+    .chip{padding:8px 12px;border:1px solid var(--border);border-radius:9999px;background:#fff;color:#344054;cursor:pointer;font-weight:600;user-select:none}
+    .chip.active{background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px}
+    label{display:block;margin:10px 0 6px;color:#475467;font-size:14px}
+    input[type="file"], textarea{width:100%;border:1px solid var(--border);background:#ffffff;color:var(--text);padding:12px;border-radius:12px}
+    textarea{min-height:110px;resize:vertical}
+    .btn{margin-top:14px;display:inline-flex;gap:8px;align-items:center;justify-content:center;background:var(--accent);border:none;color:#fff;padding:12px 18px;border-radius:9999px;font-weight:700;cursor:pointer}
+    .btn[disabled]{opacity:.6;cursor:not-allowed}
+    .status{margin-left:10px;color:#475467;font-size:14px}
+    .progress{margin-top:14px;background:#f2f4f7;border:1px solid var(--border);border-radius:9999px;height:12px;overflow:hidden;display:none}
+    .bar{height:100%;width:0%;background:var(--accent);transition:width .08s linear}
+    .progress-text{margin-top:6px;font-size:13px;color:#667085;display:none}
+    .result{margin-top:16px;display:none}
+    .fail{color:var(--danger)}
+    .filehint{font-size:12px;color:#667085}
+    /* Password Gate (overlay) */
+    .gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999}
+    .gate .box{background:#fff;border:1px solid var(--border);border-radius:16px;padding:20px;width:min(90vw,380px);box-shadow:0 10px 30px rgba(0,0,0,.08);text-align:center}
+    .gate h2{margin:0 0 10px;font-size:20px}
+    .gate input[type="password"]{width:100%;border:1px solid var(--border);background:#fff;color:var(--text);padding:12px;border-radius:12px;margin-top:8px}
+    .gate .btn{width:100%;margin-top:12px}
+    .gate .msg{margin-top:8px;font-size:13px;color:var(--danger);min-height:1em}
+    /* Footer lock button */
+    .footer{display:flex;justify-content:center;margin:18px 0 0}
+    .lock{background:#f8fafc;border:1px solid var(--border);color:#344054;padding:10px 14px;border-radius:9999px;font-weight:700;cursor:pointer}
+  </style>
+</head>
+<body>
+  <!-- Password Gate Overlay -->
+  <div id="gate" class="gate" aria-modal="true" role="dialog">
+    <form id="gateForm" class="box" autocomplete="off">
+      <h2>Enter Password</h2>
+      <input id="gateInput" type="password" placeholder="Password" required />
+      <button class="btn" type="submit">Unlock</button>
+      <div id="gateMsg" class="msg" aria-live="polite"></div>
+    </form>
+  </div>
+  <div class="wrap">
+    <h1>Vitalini AI Design Demo</h1>
+    <div class="models" id="models">
+      <button class="chip active" data-model="VP9655">VP9655</button>
+      <button class="chip" data-model="VP38">VP38</button>
+      <button class="chip" data-model="VP649">VP649</button>
+      <button class="chip" data-model="Vp106">Vp106</button>
+    </div>
+
+    <div class="card">
+      <label for="file">Upload (optional)</label>
+      <input id="file" type="file" accept="image/*" />
+      <div id="filename" class="filehint"></div>
+
+      <label for="desc">Description</label>
+      <textarea id="desc" placeholder="Enter description"></textarea>
+
+      <div>
+        <button id="go" class="btn">Generate</button>
+        <span id="status" class="status"></span>
+      </div>
+
+      <div id="progress" class="progress" aria-hidden="true"><div id="bar" class="bar"></div></div>
+      <div id="progressText" class="progress-text">Generating… 0%</div>
+
+      <div id="result" class="result"></div>
+    </div>
+      <div class="footer"><button id="lockBtn" class="lock" type="button">Lock</button></div>
+  </div>
+
+  <script>
+    // ===== Password Gate (client-side) =====
+    const GATE_PASS = "VItalini"; // exact, case-sensitive
+    const gate = document.getElementById('gate');
+    const gateForm = document.getElementById('gateForm');
+    const gateInput = document.getElementById('gateInput');
+    const gateMsg = document.getElementById('gateMsg');
+    function lockSite(){ if(!gate) return; gate.style.display='flex'; document.body.style.overflow='hidden'; setTimeout(()=> gateInput && gateInput.focus(), 50); }
+    function unlockSite(){ if(!gate) return; gate.style.display='none'; document.body.style.overflow=''; try{ localStorage.setItem('vitalini_gate','1'); }catch(e){} }
+    try{ if(localStorage.getItem('vitalini_gate')==='1'){ unlockSite(); } else { lockSite(); } }catch(e){ lockSite(); }
+    if(gateForm){ gateForm.addEventListener('submit', (e)=>{ e.preventDefault(); const val = (gateInput.value||'').trim(); if(val === GATE_PASS){ gateMsg.textContent=''; unlockSite(); } else { gateMsg.textContent='Wrong password.'; gateInput.value=''; gateInput.focus(); } }); }
+
+
+    // Jacket configurations: per-model passwords and result assets
+    const CONFIG = {
+      // =================== EDIT HERE: passwords & image links per jacket ===================
+      // Each model has THREE passwords; each password maps to a different image link.
+      // To change: edit the password strings and replace the src URLs with your hosted images.
+      // -------------------------------------------------------------------------------------
+      "VP9655": {
+        variants: [
+          // VP9655 — Password #1 → Image #1
+          { password: "AAA",  kind: "img", src: "https://chatgpt.com/backend-api/public_content/enc/eyJpZCI6Im1fNjhiODBlYzRjNmUwODE5MTk0ZGZmNmVlM2M4ZGE2OTk6ZmlsZV8wMDAwMDAwMGI4OTA2MjMwYjgzNzNiZDE0OWE1MWQwNSIsInRzIjoiNDg4MDI1IiwicCI6InB5aSIsInNpZyI6IjA5ZmVlOWE2ZGVmYzE5NDdmNDljNTAxYzBmZjRhMjFlZjgzYmRlMWNmODFmNzZmYTQ1NjA4N2VmYjdmOGE0ZGYiLCJ2IjoiMCIsImdpem1vX2lkIjpudWxsLCJjcCI6bnVsbH0=" },
+          // VP9655 — Password #2 → Image #2
+          { password: "AAA2", kind: "img", src: "https://example.com/vp9655-2.png" },
+          // VP9655 — Password #3 → Image #3
+          { password: "AAA3", kind: "img", src: "https://example.com/vp9655-3.png" }
+        ]
+      },
+      "VP38": {
+        variants: [
+          { password: "BBB",  kind: "img", src: "https://example.com/vp38-1.png" },
+          { password: "BBB2", kind: "img", src: "https://example.com/vp38-2.png" },
+          { password: "BBB3", kind: "img", src: "https://example.com/vp38-3.png" }
+        ]
+      },
+      "VP649": {
+        variants: [
+          { password: "CCC",  kind: "img", src: "https://example.com/vp649-1.png" },
+          { password: "CCC2", kind: "img", src: "https://example.com/vp649-2.png" },
+          { password: "CCC3", kind: "img", src: "https://example.com/vp649-3.png" }
+        ]
+      },
+      "Vp106": {
+        variants: [
+          { password: "DDD",  kind: "img", src: "https://example.com/vp106-1.png" },
+          { password: "DDD2", kind: "img", src: "https://example.com/vp106-2.png" },
+          { password: "DDD3", kind: "img", src: "https://example.com/vp106-3.png" }
+        ]
+      }
+    };
+    let selectedModel = "VP9655";
+
+const el = id => document.getElementById(id);
+    const fileInput = el('file');
+    const fileName = el('filename');
+    const desc = el('desc');
+    const go = el('go');
+    const status = el('status');
+    const progress = el('progress');
+    const bar = el('bar');
+    const progressText = el('progressText');
+    const result = el('result');
+    const modelsEl = el('models');
+
+    // model picker
+    modelsEl.addEventListener('click', (e)=>{
+      const btn = e.target.closest('.chip');
+      if(!btn) return;
+      [...modelsEl.querySelectorAll('.chip')].forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedModel = btn.dataset.model;
+    });
+
+    fileInput.addEventListener('change', () => {
+      const f = fileInput.files[0];
+      fileName.textContent = f ? `Selected: ${f.name} (${Math.round(f.size/1024)} KB)` : '';
+    });
+
+    function resetUI(){
+      status.textContent = '';
+      progress.style.display = 'none';
+      progressText.style.display = 'none';
+      bar.style.width = '0%';
+      progressText.textContent = 'Generating… 0%';
+      result.style.display = 'none';
+      result.innerHTML = '';
+      desc.disabled = false;
+      fileInput.disabled = false;
+      go.disabled = false;
+    }
+
+    function showDemoForModel(cfg, modelLabel){
+      if(!cfg) return;
+      let html='';
+      if(cfg.kind === 'img'){
+        html = `<img src="${cfg.src}" alt="${modelLabel} result" style="max-width:100%;height:auto;border-radius:12px;border:1px solid var(--border);display:block">`;
+      } else {
+        // Fallback: simple SVG if someone sets kind:'svg'
+        const color = cfg.variant==='blue' ? '#1d4ed8' : (cfg.variant==='green' ? '#16a34a' : '#dc2626');
+        const label = cfg.label || modelLabel;
+        html = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1536" style="max-width:100%;height:auto;border-radius:12px;border:1px solid var(--border);background:#fff;display:block">
+          <defs><linearGradient id=\"g\" x1=\"0\" x2=\"0\" y1=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#f3f4f6\"/><stop offset=\"1\" stop-color=\"#e5e7eb\"/></linearGradient></defs>
+          <rect width=\"1024\" height=\"1536\" fill=\"#ffffff\"/>
+          <g transform=\"translate(212,120)\">
+            <path d=\"M300 0c110 8 154 80 170 120l70 30c15 7 28 24 25 42-10 62-50 85-87 94-3 111-7 274-22 352-23 123-106 200-156 216-50-16-133-93-156-216-15-78-19-241-22-352-37-9-77-32-87-94-3-18 10-35 25-42l70-30C146 80 190 8 300 0z\" fill=\"url(#g)\" stroke=\"#cbd5e1\" stroke-width=\"3\"/>
+            <rect x=\"292\" y=\"130\" width=\"16\" height=\"520\" fill=\"#cbd5e1\"/>
+            <path d=\"M260 130h80c8 0 15 7 15 15v10H245v-10c0-8 7-15 15-15z\" fill=\"#cbd5e1\"/>
+            <circle cx=\"300\" cy=\"220\" r=\"12\" fill=\"#cbd5e1\"/>
+            <path d=\"M120 320c40-10 90-20 180-20s140 10 180 20\" fill=\"none\" stroke=\"#e2e8f0\" stroke-width=\"3\"/>
+          </g>
+          <circle cx=\"512\" cy=\"1180\" r=\"120\" fill=\"${color}\" opacity=\"0.15\"/>
+          <text x=\"50%\" y=\"92%\" text-anchor=\"middle\" fill=\"${color}\" font-family=\"system-ui,Arial\" font-size=\"36\" font-weight=\"700\">${label} DEMO</text>
+        </svg>`;
+      }
+      result.innerHTML = html;
+      result.style.display = 'block';
+    }
+
+    async function runDemo(){
+      // lock UI
+      desc.disabled = true; fileInput.disabled = true; go.disabled = true;
+      status.textContent = 'Generating…';
+      progress.style.display = 'block';
+      progressText.style.display = 'block';
+
+      const t1 = 13000, t2 = 14000, t3 = 15000; // non-linear: 13s→65%, 14s→99%, 15s→100%
+      const start = performance.now();
+
+      return new Promise(resolve => {
+        const tick = () => {
+          const elapsed = performance.now() - start;
+          let pct = 0;
+          if (elapsed < t1) {
+            // Smooth ramp to 65% over the first 13 seconds
+            pct = Math.round((elapsed / t1) * 65);
+          } else if (elapsed < t2) {
+            // Hold at 65% between 13s and 14s
+            pct = 65;
+          } else if (elapsed < t3) {
+            // Jump to 99% at 14s and hold to 15s
+            pct = 99;
+          } else {
+            // Complete at 15s
+            pct = 100;
+          }
+          bar.style.width = pct + '%';
+          progressText.textContent = `Generating… ${pct}%`;
+          if (elapsed < t3) {
+            requestAnimationFrame(tick);
+          } else {
+            resolve();
+          }
+        };
+        requestAnimationFrame(tick);
+      });
+    }
+
+    async function generate(){
+      // reset previous state
+      result.style.display = 'none';
+      result.innerHTML='';
+      status.classList.remove('fail');
+
+      await runDemo();
+
+      const lastWord = (desc.value.trim().split(' ').filter(Boolean).pop() || '');
+      const variants = (CONFIG[selectedModel] && CONFIG[selectedModel].variants) || [];
+      const match = variants.find(v => lastWord === v.password);
+      const ok = !!match;
+      if (ok){
+        status.textContent = 'Done.';
+        showDemoForModel(match, selectedModel);
+      } else {
+        status.textContent = 'Failed.';
+        status.classList.add('fail');
+      }
+      // clear input after generation
+      desc.value = '';
+
+      // unlock UI
+      progress.style.display = 'none';
+      progressText.style.display = 'none';
+      bar.style.width = '0%';
+      desc.disabled = false; fileInput.disabled = false; go.disabled = false;
+    }
+
+    go.addEventListener('click', generate);
+    // Allow Enter+Ctrl/Cmd to start
+    desc.addEventListener('keydown', (e)=>{ if((e.metaKey||e.ctrlKey) && e.key==='Enter'){ generate(); }});
+
+    // Initialize clean state
+    // (added) lock button handler
+  const lockBtn = document.getElementById('lockBtn');
+  if(lockBtn){ lockBtn.addEventListener('click', ()=>{ try{ localStorage.removeItem('vitalini_gate'); }catch(e){} lockSite(); }); }
+
+  resetUI();
+  </script>
+</body>
+</html>
